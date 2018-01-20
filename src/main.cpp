@@ -108,9 +108,10 @@ void transformLocalToGlobal(vector<double>& ptsx, vector<double>& ptsy, double p
 int main()
 {
     uWS::Hub h;
+    MPC mpc;
 
     h.onMessage(
-        [](uWS::WebSocket<uWS::SERVER> ws, char* data, size_t length,
+        [&mpc](uWS::WebSocket<uWS::SERVER> ws, char* data, size_t length,
                uWS::OpCode opCode) {
             // "42" at the start of the message means there's a websocket message event.
             // The 4 signifies a websocket message
@@ -133,9 +134,9 @@ int main()
                         double py = j[1]["y"];
                         double psi = j[1]["psi"];
                         double v = j[1]["speed"];
-                        double a = j[1]["throttle"];
                         double delta = j[1]["steering_angle"];
-                        delta *= -deg2rad(25);
+                        // steering angle is returned to us in radians, but flipped.
+                        delta *= -1;
 
                         auto waypoints_x = ptsx;
                         auto waypoints_y = ptsy;
@@ -148,21 +149,23 @@ int main()
                         *
                         */
 
+                        mpc.Update(v);
+
                         Eigen::VectorXd state(6);
-                        state << 0, 0, 0, v, a, delta;
+                        state << 0, 0, 0, v, mpc.a, delta;
 
                         auto coeffs = polyfit(
                             Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(waypoints_x.data(), waypoints_x.size()),
                             Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(waypoints_y.data(), waypoints_y.size()),
                             4);
-                        auto soln = MPC::Solve(state, coeffs);
+                        auto soln = mpc.Solve(state, coeffs);
 
-                        double future_i = 3;
+                        double future_i = 5;
                         double future_x = soln.x[future_i];
                         double future_y = soln.y[future_i];
                         double future_psi = soln.psi[future_i];
                         double steer_value = -soln.delta[future_i] / deg2rad(25);
-                        double throttle_value = soln.a[future_i];
+                        double throttle_value = soln.a[future_i] / 100.0;
 
                         json msgJson;
                         // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
