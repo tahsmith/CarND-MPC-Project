@@ -157,7 +157,7 @@ int main()
                             4);
                         auto soln = MPC::Solve(state, coeffs);
 
-                        double future_i = 2;
+                        double future_i = 3;
                         double future_x = soln.x[future_i];
                         double future_y = soln.y[future_i];
                         double future_psi = soln.psi[future_i];

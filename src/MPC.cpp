@@ -13,7 +13,7 @@ const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
 const size_t n_constraints = 4 * (N - 1);
-const double target_v = 40;
+const double target_v = 60;
 const double max_a = 100;
 const double max_steer = 25.0 * M_PI / 180.0;
 
@@ -201,8 +201,8 @@ public:
         // NOTE: You'll probably go back and forth between this function and
         // the Solver function below.
         fg[0] = 0;
-        fg[0] += 5 * crossTrackError(vars);
-        fg[0] += 10 * tangentialError(vars);
+        fg[0] += 50 * crossTrackError(vars);
+        fg[0] += 100 * tangentialError(vars);
         fg[0] += 1000 * smooth(vars);
         fg[0] += 1 * speedPenalty(vars);
         fg[0] += 2 * distancePenalty(vars);
