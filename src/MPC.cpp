@@ -8,10 +8,15 @@ using CppAD::AD;
 
 // TODO: Set the timestep length and duration
 const size_t N = 10;
-const double dt = 0.1;
+const double dt = 0.05;
 const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
+const size_t n_constraints = 4 * (N - 1);
+const double max_v = 30;
+const double max_a = 0.5;
+const double max_steer = 25 * M_PI / 180;
+
 
 // This value assumes the model presented in the classroom is used.
 //
@@ -100,37 +105,65 @@ public:
         AD<double> cte = 0.0;
         for (size_t i = 0; i < N; ++i) {
             auto x = vars[x_i(i)];
-            auto err = polyEval(coeffs, x) - x;
+            auto y = vars[y_i(i)];
+            auto err = polyEval(coeffs, x) - y;
             cte += CppAD::pow(err, 2);
         }
 
         return cte;
     }
 
+    AD<double> tangentialError(const ADvector& vars) {
+        using namespace state_indices;
+        AD<double> tangentialError = 0.0;
+        for (size_t i = 1; i < N; ++i) {
+            auto psi = vars[psi_i(i)];
+            auto x0 = vars[x_i(i - 1)];
+            auto x1 = vars[x_i(i)];
+            auto y0 = polyEval(coeffs, x0);
+            auto y1 = polyEval(coeffs, x1);
+            if (CppAD::abs(x0 - x1) > 0.001) {
+                auto grad = (y1 - y0) / (x1 - x0);
+                tangentialError += psi - atan(grad);
+            }
+        }
+        return tangentialError;
+    }
+
     AD<double> distance(const ADvector& vars) {
         using namespace state_indices;
         AD<double> distance = 0.0;
-        for (size_t i = 1; i < N; ++i) {
+        for (size_t i = N - 1; i < N; ++i) {
             auto x0 = vars[x_i(i - 1)];
             auto y0 = vars[y_i(i - 1)];
             auto x1 = vars[x_i(i)];
             auto y1 = vars[y_i(i)];
             auto dx = x1 - x0;
             auto dy = y1 - y0;
-            distance += CppAD::sqrt(dx * dx + dy * dy);
+            distance += CppAD::pow(dx, 2) + CppAD::pow(dy, 2);
         }
 
         return distance;
     }
 
+    AD<double> smooth(const ADvector& vars) {
+        using namespace state_indices;
+        AD<double> smooth_cost = 0;
+        for (size_t i = 0; i < N - 2; i++) {
+            smooth_cost += CppAD::pow((vars[delta_i(i + 1)] - vars[delta_i(i + 1)]) / max_a, 2);
+            smooth_cost += CppAD::pow((vars[a_i(i + 1)] - vars[a_i(i)] ) / max_v, 2);
+        }
+        return smooth_cost;
+    }
+
     void applyProcessModelConstraint(const ADvector& vars, size_t i, ADvector& fg) {
         using namespace state_indices;
-        auto x0 = vars[x_i(i - 1)];
-        auto y0 = vars[y_i(i - 1)];
-        auto psi0 = vars[psi_i(i - 1)];
-        auto v0 = vars[v_i(i - 1)];
-        auto delta = vars[delta_i(i - 1)];
-        auto a = vars[a_i(i - 1)];
+        auto x0 = vars[x_i(i)];
+        auto y0 = vars[y_i(i)];
+        auto psi0 = vars[psi_i(i)];
+        auto v0 = vars[v_i(i)];
+        auto delta = vars[delta_i(i)];
+        auto a = vars[a_i(i)];
 
         auto r = v0 * dt;
         auto x1_pred = x0 + r * CppAD::cos(psi0);
@@ -138,19 +171,19 @@ public:
         auto psi1_pred = psi0 + r * delta / Lf;
         auto v1_pred = v0 + a * dt;
 
-        auto x1 = vars[x_i(i)];
-        auto y1 = vars[y_i(i)];
-        auto psi1 = vars[psi_i(i)];
-        auto v1 = vars[v_i(i)];
+        auto x1 = vars[x_i(i + 1)];
+        auto y1 = vars[y_i(i + 1)];
+        auto psi1 = vars[psi_i(i + 1)];
+        auto v1 = vars[v_i(i + 1)];
 
         auto x_err = x1_pred - x1;
         auto y_err = y1_pred - y1;
         auto psi_err = psi1_pred - psi1;
         auto v_err = v1_pred - v1;
-        fg[i + 1] = x_err * x_err;
-        fg[i + N + 1] = y_err * y_err;
-        fg[i + 2 * N + 1] = psi_err * psi_err;
-        fg[i + 3 * N + 1] = v_err * v_err;
+        fg[i + 0 * (N - 1) + 1] = x_err;
+        fg[i + 1 * (N - 1) + 1] = y_err;
+        fg[i + 2 * (N - 1) + 1] = psi_err;
+        fg[i + 3 * (N - 1) + 1] = v_err;
     }
 
     void operator()(ADvector& fg, const ADvector& vars)
@@ -159,37 +192,27 @@ public:
         // `fg` a vector of the cost constraints, `vars` is a vector of variable values (state & actuators)
         // NOTE: You'll probably go back and forth between this function and
         // the Solver function below.
+        fg[0] = 0;
+        fg[0] += crossTrackError(vars);
+        fg[0] += tangentialError(vars);
+        fg[0] += 100000 * smooth(vars);
 
-        fg[0] = crossTrackError(vars) - distance(vars);
-        for(size_t i = 1; i < N; ++i) {
+        fg[0] += -distance(vars);
+        for(size_t i = 0; i < N - 1; ++i) {
             applyProcessModelConstraint(vars, i, fg);
         }
+
+        std::cout << fg << std::endl;
     }
 };
 
-//
-// MPC class definition implementation.
-//
-MPC::MPC()
-{}
-
-MPC::~MPC()
-{}
-
-vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
+auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
 {
     using namespace state_indices;
     bool ok = true;
     typedef CPPAD_TESTVECTOR(double) Dvector;
 
-    // TODO: Set the number of model variables (includes both states and inputs).
-    // For example: If the state is a 4 element vector, the actuators is a 2
-    // element vector and there are 10 timesteps. The number of variables is:
-    //
-    // 4 * 10 + 2 * 9
     // TODO: Set the number of constraints
-    size_t n_constraints = 4 * N;
-
     // Initial value of the independent variables.
     // SHOULD BE 0 besides initial state.
     Dvector vars(n_vars);
@@ -206,9 +229,30 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     Dvector vars_upperbound(n_vars);
     // TODO: Set lower and upper limits for variables.
     for (size_t i = 0; i < N - 1; ++i) {
-        vars_lowerbound[a_i(i)] = -1.0;
-        vars_upperbound[a_i(i)] = 1.0;
+        vars_lowerbound[a_i(i)] = -max_a;
+        vars_upperbound[a_i(i)] = max_a;
+        vars_lowerbound[delta_i(i)] = -max_steer;
+        vars_upperbound[delta_i(i)] = max_steer;
     }
+    for (size_t i = 1; i < N; ++i) {
+        vars_lowerbound[x_i(i)] = -10000;
+        vars_upperbound[x_i(i)] = 10000;
+        vars_lowerbound[y_i(i)] = -10000;
+        vars_upperbound[y_i(i)] = 10000;
+        vars_lowerbound[psi_i(i)] = -10000;
+        vars_upperbound[psi_i(i)] = 10000;
+        vars_lowerbound[v_i(i)] = -max_v;
+        vars_upperbound[v_i(i)] = max_v;
+    }
+
+    vars_lowerbound[x_i(0)] = state(0);
+    vars_upperbound[x_i(0)] = state(0);
+    vars_lowerbound[y_i(0)] = state(1);
+    vars_upperbound[y_i(0)] = state(1);
+    vars_lowerbound[psi_i(0)] = state(2);
+    vars_upperbound[psi_i(0)] = state(2);
+    vars_lowerbound[v_i(0)] = state(3);
+    vars_upperbound[v_i(0)] = state(3);
 
     // Lower and upper limits for the constraints
     // Should be 0 besides initial state.
@@ -216,21 +260,19 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     Dvector constraints_upperbound(n_constraints);
     for (int i = 0; i < n_constraints; i++)
     {
-        constraints_lowerbound[i] = 0;
-        constraints_upperbound[i] = 0;
+        constraints_lowerbound[i] = 0.0;
+        constraints_upperbound[i] = 0.0;
     }
-    constraints_lowerbound[x_i(0)] = state(0);
-    constraints_lowerbound[y_i(0)] = state(1);
-    constraints_lowerbound[psi_i(0)] = state(2);
-    constraints_lowerbound[v_i(0)] = state(3);
-
-    constraints_upperbound[x_i(0)] = state(0);
-    constraints_upperbound[y_i(0)] = state(1);
-    constraints_upperbound[psi_i(0)] = state(2);
-    constraints_upperbound[v_i(0)] = state(3);
 
     // object that computes objective and constraints
-    FG_eval fg_eval(move(coeffs));
+    FG_eval fg_eval(std::move(coeffs));
+
+//    std::cout << vars << "\n";
+//    std::cout << vars_lowerbound << "\n";
+//    std::cout << vars_upperbound << "\n";
+//
+//    std::cout << constraints_lowerbound << "\n";
+//    std::cout << constraints_upperbound << "\n";
 
     //
     // NOTE: You don't have to worry about these options
@@ -260,6 +302,53 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
 
     // Check some of the solution values
     ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
+    switch (solution.status) {
+        case CppAD::ipopt::solve_result<Dvector>::not_defined:
+            std::cout << "not_defined\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::success:
+            std::cout << "success\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::feasible_point_found:
+            std::cout << "feasible_point_found\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::unknown:
+            std::cout << "unknown\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::maxiter_exceeded:
+            std::cout << "maxiter_exceeded\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::stop_at_tiny_step:
+            std::cout << "stop_at_tiny_step\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::stop_at_acceptable_point:
+            std::cout << "stop_at_acceptable_point\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::local_infeasibility:
+            std::cout << "local_infeasibility\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::user_requested_stop:
+            std::cout << "user_requested_stop\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::diverging_iterates:
+            std::cout << "diverging_iterates\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::restoration_failure:
+            std::cout << "restoration_failure\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::error_in_step_computation:
+            std::cout << "error_in_step_computation\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::invalid_number_detected:
+            std::cout << "invalid_number_detected\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::too_few_degrees_of_freedom:
+            std::cout << "too_few_degrees_of_freedom\n";
+            break;
+        case CppAD::ipopt::solve_result<Dvector>::internal_error:
+            std::cout << "internal_error\n";
+            break;
+    }
 
     // Cost
     auto cost = solution.obj_value;
@@ -270,7 +359,15 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     //
     // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
     // creates a 2 element double vector.
-    vector<double> output;
-    std::copy(solution.x.data(), solution.x.data() + solution.x.size(), std::back_inserter(output));
-    return output;
+    std::vector<double> x;
+    std::copy(solution.x.data(), solution.x.data() + N, std::back_inserter(x));
+    std::vector<double> y;
+    std::copy(solution.x.data() + N, solution.x.data() + 2 * N , std::back_inserter(y));
+
+    return {
+            x,
+            y,
+            solution.x[a_i(1)],
+            solution.x[delta_i(1)]
+    };
 }
