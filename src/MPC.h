@@ -4,7 +4,12 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 
-namespace MPC {
+class MPC {
+public:
+    double v, a;
+    double t;
+
+    MPC();
 
     struct Solution {
         std::vector<double> x;
@@ -17,6 +22,8 @@ namespace MPC {
     // Solve the model given an initial state and polynomial coefficients.
     // Return the first actuatotions.
     Solution Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
+
+    void Update(double v);
 };
 
 #endif /* MPC_H */

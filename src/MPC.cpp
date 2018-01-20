@@ -13,7 +13,7 @@ const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
 const size_t n_constraints = 4 * (N - 1);
-const double target_v = 60;
+const double target_v = 80;
 const double max_a = 100;
 const double max_steer = 25.0 * M_PI / 180.0;
 
@@ -390,8 +390,6 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     std::vector<double> delta;
     std::copy(solution.x.data() + delta_i(0), solution.x.data() + delta_i(N - 1), std::back_inserter(delta));
 
-    std::cout << delta.size() << std::endl;
-
     return {
             x,
             y,
@@ -400,4 +398,25 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
             a,
             delta
     };
+}
+
+MPC::MPC(): v(0), a(0), t(0.0) {
+
+}
+
+void MPC::Update(double v) {
+    using std::chrono::high_resolution_clock;
+    using std::chrono::duration_cast;
+    using std::chrono::milliseconds;
+    if (t == 0.0) {
+        this->v = v;
+    }
+    else
+    {
+        double now = duration_cast<milliseconds>(high_resolution_clock::now().time_since_epoch()).count() * 1e-3;
+        double dt = now - t;
+        a = (v - this->v) / dt;
+        this->v = v;
+        t = now;
+    }
 }
