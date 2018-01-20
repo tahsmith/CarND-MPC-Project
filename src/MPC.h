@@ -9,8 +9,10 @@ namespace MPC {
     struct Solution {
         std::vector<double> x;
         std::vector<double> y;
-        double a;
-        double delta;
+        std::vector<double> psi;
+        std::vector<double> v;
+        std::vector<double> a;
+        std::vector<double> delta;
     };
     // Solve the model given an initial state and polynomial coefficients.
     // Return the first actuatotions.

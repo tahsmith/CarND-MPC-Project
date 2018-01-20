@@ -224,6 +224,8 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     vars[y_i(0)] = state(1);
     vars[psi_i(0)] = state(2);
     vars[v_i(0)] = state(3);
+    vars[a_i(0)] = state(4);
+    vars[delta_i(0)] = state(5);
 
     Dvector vars_lowerbound(n_vars);
     Dvector vars_upperbound(n_vars);
@@ -360,14 +362,26 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
     // creates a 2 element double vector.
     std::vector<double> x;
-    std::copy(solution.x.data(), solution.x.data() + N, std::back_inserter(x));
+    std::copy(solution.x.data() + x_i(0), solution.x.data() + x_i(N), std::back_inserter(x));
     std::vector<double> y;
-    std::copy(solution.x.data() + N, solution.x.data() + 2 * N , std::back_inserter(y));
+    std::copy(solution.x.data() + y_i(0), solution.x.data() + y_i(N), std::back_inserter(y));
+    std::vector<double> psi;
+    std::copy(solution.x.data() + psi_i(0), solution.x.data() + psi_i(N), std::back_inserter(psi));
+    std::vector<double> v;
+    std::copy(solution.x.data() + v_i(0), solution.x.data() + v_i(N), std::back_inserter(v));
+    std::vector<double> a;
+    std::copy(solution.x.data() + a_i(0), solution.x.data() + a_i(N - 1), std::back_inserter(a));
+    std::vector<double> delta;
+    std::copy(solution.x.data() + delta_i(0), solution.x.data() + delta_i(N - 1), std::back_inserter(delta));
+
+    std::cout << delta.size() << std::endl;
 
     return {
             x,
             y,
-            solution.x[a_i(1)],
-            solution.x[delta_i(1)]
+            psi,
+            v,
+            a,
+            delta
     };
 }
