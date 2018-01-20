@@ -7,15 +7,15 @@
 using CppAD::AD;
 
 // TODO: Set the timestep length and duration
-const size_t N = 10;
+const size_t N = 20;
 const double dt = 0.05;
 const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
 const size_t n_constraints = 4 * (N - 1);
-const double max_v = 30;
-const double max_a = 0.5;
-const double max_steer = 25 * M_PI / 180;
+const double target_v = 40;
+const double max_a = 100;
+const double max_steer = 25.0 * M_PI / 180.0;
 
 
 // This value assumes the model presented in the classroom is used.
@@ -123,14 +123,13 @@ public:
             auto y0 = polyEval(coeffs, x0);
             auto y1 = polyEval(coeffs, x1);
             if (CppAD::abs(x0 - x1) > 0.001) {
-                auto grad = (y1 - y0) / (x1 - x0);
-                tangentialError += psi - atan(grad);
+                tangentialError += CppAD::pow(psi - atan2(y1 - y0, x1 - x0), 2);
             }
         }
         return tangentialError;
     }
 
-    AD<double> distance(const ADvector& vars) {
+    AD<double> distancePenalty(const ADvector &vars) {
         using namespace state_indices;
         AD<double> distance = 0.0;
         for (size_t i = N - 1; i < N; ++i) {
@@ -143,15 +142,24 @@ public:
             distance += CppAD::pow(dx, 2) + CppAD::pow(dy, 2);
         }
 
-        return distance;
+        return -distance;
+    }
+
+    AD<double> speedPenalty(const ADvector& vars) {
+        using namespace state_indices;
+        AD<double> speedError = 0.0;
+        for (size_t i = 0; i < N; ++i) {
+            speedError += CppAD::pow(vars[v_i(i)] - target_v, 2);
+        }
+        return speedError;
     }
 
     AD<double> smooth(const ADvector& vars) {
         using namespace state_indices;
         AD<double> smooth_cost = 0;
         for (size_t i = 0; i < N - 2; i++) {
-            smooth_cost += CppAD::pow((vars[delta_i(i + 1)] - vars[delta_i(i + 1)]) / max_a, 2);
-            smooth_cost += CppAD::pow((vars[a_i(i + 1)] - vars[a_i(i)] ) / max_v, 2);
+            smooth_cost += CppAD::pow((vars[delta_i(i + 1)] - vars[delta_i(i)]) / max_steer, 2);
+            smooth_cost += CppAD::pow((vars[a_i(i + 1)] - vars[a_i(i)] ) / max_a, 2);
         }
         return smooth_cost;
     }
@@ -193,11 +201,11 @@ public:
         // NOTE: You'll probably go back and forth between this function and
         // the Solver function below.
         fg[0] = 0;
-        fg[0] += crossTrackError(vars);
-        fg[0] += tangentialError(vars);
-        fg[0] += 100000 * smooth(vars);
-
-        fg[0] += -distance(vars);
+        fg[0] += 5 * crossTrackError(vars);
+        fg[0] += 10 * tangentialError(vars);
+        fg[0] += 1000 * smooth(vars);
+        fg[0] += 1 * speedPenalty(vars);
+        fg[0] += 2 * distancePenalty(vars);
         for(size_t i = 0; i < N - 1; ++i) {
             applyProcessModelConstraint(vars, i, fg);
         }
@@ -243,8 +251,8 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
         vars_upperbound[y_i(i)] = 10000;
         vars_lowerbound[psi_i(i)] = -10000;
         vars_upperbound[psi_i(i)] = 10000;
-        vars_lowerbound[v_i(i)] = -max_v;
-        vars_upperbound[v_i(i)] = max_v;
+        vars_lowerbound[v_i(i)] = 0;
+        vars_upperbound[v_i(i)] = 10000;
     }
 
     vars_lowerbound[x_i(0)] = state(0);
@@ -255,6 +263,10 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     vars_upperbound[psi_i(0)] = state(2);
     vars_lowerbound[v_i(0)] = state(3);
     vars_upperbound[v_i(0)] = state(3);
+    vars_lowerbound[a_i(0)] = state(4);
+    vars_upperbound[a_i(0)] = state(4);
+    vars_lowerbound[delta_i(0)] = state(5);
+    vars_upperbound[delta_i(0)] = state(5);
 
     // Lower and upper limits for the constraints
     // Should be 0 besides initial state.
@@ -350,6 +362,10 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
         case CppAD::ipopt::solve_result<Dvector>::internal_error:
             std::cout << "internal_error\n";
             break;
+    }
+    if (!ok)
+    {
+        exit(1);
     }
 
     // Cost
