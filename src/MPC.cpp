@@ -13,7 +13,7 @@ const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
 const size_t n_constraints = 4 * (N - 1);
-const double target_v = 40;
+const double target_v = 120;
 const double max_a = 100;
 const double max_steer = 25.0 * M_PI / 180.0;
 
@@ -164,6 +164,15 @@ public:
         return smooth_cost;
     }
 
+    AD<double> corneringPenalty(const ADvector& vars) {
+        using namespace state_indices;
+        AD<double> cornering_penalty = 0;
+        for (size_t i = 0; i < N - 2; i++) {
+            cornering_penalty += CppAD::pow(vars[v_i(i)] * vars[v_i(i)] * vars[delta_i(i)]/ max_steer, 2);
+        }
+        return cornering_penalty;
+    }
+
     void applyProcessModelConstraint(const ADvector& vars, size_t i, ADvector& fg) {
         using namespace state_indices;
         auto x0 = vars[x_i(i)];
@@ -201,11 +210,11 @@ public:
         // NOTE: You'll probably go back and forth between this function and
         // the Solver function below.
         fg[0] = 0;
-        fg[0] += 50 * crossTrackError(vars);
+        fg[0] += 100 * crossTrackError(vars);
         fg[0] += 100 * tangentialError(vars);
-        fg[0] += 1000 * smooth(vars);
-        fg[0] += 1 * speedPenalty(vars);
-        fg[0] += 2 * distancePenalty(vars);
+        fg[0] += 100 * smooth(vars);
+        fg[0] += 2 * speedPenalty(vars);
+        fg[0] += 0.005 * corneringPenalty(vars);
         for(size_t i = 0; i < N - 1; ++i) {
             applyProcessModelConstraint(vars, i, fg);
         }

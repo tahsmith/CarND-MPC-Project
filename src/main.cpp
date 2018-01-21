@@ -109,7 +109,7 @@ int main()
 {
     uWS::Hub h;
     MPC mpc;
-    AccelerationController accelerationController(1.0, 0.002, 1.5);
+    AccelerationController accelerationController(10.0, 0.002, 1.5);
 
     h.onMessage(
         [&mpc, &accelerationController](uWS::WebSocket<uWS::SERVER> ws, char* data, size_t length,
