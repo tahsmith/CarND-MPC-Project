@@ -160,7 +160,7 @@ int main()
                         auto coeffs = polyfit(
                             Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(waypoints_x.data(), waypoints_x.size()),
                             Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(waypoints_y.data(), waypoints_y.size()),
-                            4);
+                            3);
                         auto soln = mpc.Solve(state, coeffs);
 
                         double future_i = 3;
