@@ -4,11 +4,60 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 
-class MPC {
+class PID {
+public:
+    /*
+    * Errors
+    */
+    double p_error;
+    double i_error;
+    double d_error;
+
+    /*
+    * Coefficients
+    */
+    double Kp;
+    double Ki;
+    double Kd;
+
+    /*
+    * Constructor
+    */
+    PID();
+
+    /*
+    * Initialize PID.
+    */
+    void Init(double Kp, double Ki, double Kd);
+
+    /*
+    * Update the PID error variables given cross track error.
+    */
+    void UpdateError(double cte);
+
+    /*
+    * Calculate the total PID error.
+    */
+    double TotalError();
+};
+
+class AccelerationController {
+    PID pid;
 public:
     double v, a;
+    double p_a, i_a, d_a;
     double t;
 
+
+    AccelerationController(double Kp, double Ki, double Kd);
+
+    void Update(double v);
+
+    double Throttle(double accelerationSetPoint);
+};
+
+class MPC {
+public:
     MPC();
 
     struct Solution {
@@ -19,11 +68,10 @@ public:
         std::vector<double> a;
         std::vector<double> delta;
     };
+
     // Solve the model given an initial state and polynomial coefficients.
     // Return the first actuatotions.
     Solution Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
-
-    void Update(double v);
 };
 
 #endif /* MPC_H */

@@ -13,7 +13,7 @@ const size_t n_state = 4 * N;
 const size_t n_control = 2 * (N - 1);
 const size_t n_vars = n_state + n_control;
 const size_t n_constraints = 4 * (N - 1);
-const double target_v = 80;
+const double target_v = 40;
 const double max_a = 100;
 const double max_steer = 25.0 * M_PI / 180.0;
 
@@ -251,7 +251,7 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
         vars_upperbound[y_i(i)] = 10000;
         vars_lowerbound[psi_i(i)] = -10000;
         vars_upperbound[psi_i(i)] = 10000;
-        vars_lowerbound[v_i(i)] = 0;
+        vars_lowerbound[v_i(i)] = -10000;
         vars_upperbound[v_i(i)] = 10000;
     }
 
@@ -400,16 +400,43 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     };
 }
 
-MPC::MPC(): v(0), a(0), t(0.0) {
+MPC::MPC(){
 
 }
 
-void MPC::Update(double v) {
+PID::PID():
+        p_error(0),
+        i_error(0),
+        d_error(0)
+{}
+
+void PID::Init(double Kp, double Ki, double Kd) {
+    this->Kp = Kp;
+    this->Ki = Ki;
+    this->Kd = Kd;
+}
+
+void PID::UpdateError(double cte) {
+    d_error = cte - p_error;
+    p_error = cte;
+    i_error += cte;
+}
+
+double PID::TotalError() {
+    return -(Kp * p_error + Kd * d_error + Ki * i_error);
+}
+
+AccelerationController::AccelerationController(double Kp, double Ki, double Kd) : v(0), a(0), t(0.0)  {
+    pid.Init(Kp, Ki, Kd);
+}
+
+void AccelerationController::Update(double v) {
     using std::chrono::high_resolution_clock;
     using std::chrono::duration_cast;
     using std::chrono::milliseconds;
     if (t == 0.0) {
         this->v = v;
+        t = duration_cast<milliseconds>(high_resolution_clock::now().time_since_epoch()).count() * 1e-3;
     }
     else
     {
@@ -419,4 +446,9 @@ void MPC::Update(double v) {
         this->v = v;
         t = now;
     }
+}
+
+double AccelerationController::Throttle(double accelerationSetPoint) {
+    pid.UpdateError(a - accelerationSetPoint);
+    return pid.TotalError();
 }

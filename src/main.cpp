@@ -109,9 +109,10 @@ int main()
 {
     uWS::Hub h;
     MPC mpc;
+    AccelerationController accelerationController(1.0, 0.002, 1.5);
 
     h.onMessage(
-        [&mpc](uWS::WebSocket<uWS::SERVER> ws, char* data, size_t length,
+        [&mpc, &accelerationController](uWS::WebSocket<uWS::SERVER> ws, char* data, size_t length,
                uWS::OpCode opCode) {
             // "42" at the start of the message means there's a websocket message event.
             // The 4 signifies a websocket message
@@ -134,9 +135,10 @@ int main()
                         double py = j[1]["y"];
                         double psi = j[1]["psi"];
                         double v = j[1]["speed"];
-                        double delta = j[1]["steering_angle"];
+                        double throttle = j[1]["throttle"];
+                        double steering_angle = j[1]["steering_angle"];
                         // steering angle is returned to us in radians, but flipped.
-                        delta *= -1;
+                        steering_angle *= -1;
 
                         auto waypoints_x = ptsx;
                         auto waypoints_y = ptsy;
@@ -149,10 +151,11 @@ int main()
                         *
                         */
 
-                        mpc.Update(v);
+                        accelerationController.Update(v);
 
                         Eigen::VectorXd state(6);
-                        state << 0, 0, 0, v, mpc.a, delta;
+                        cout << accelerationController.a << " " << throttle;
+                        state << 0, 0, 0, v, accelerationController.a, steering_angle;
 
                         auto coeffs = polyfit(
                             Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(waypoints_x.data(), waypoints_x.size()),
@@ -160,12 +163,12 @@ int main()
                             4);
                         auto soln = mpc.Solve(state, coeffs);
 
-                        double future_i = 5;
+                        double future_i = 3;
                         double future_x = soln.x[future_i];
                         double future_y = soln.y[future_i];
                         double future_psi = soln.psi[future_i];
                         double steer_value = -soln.delta[future_i] / deg2rad(25);
-                        double throttle_value = soln.a[future_i] / 100.0;
+                        double throttle_value = accelerationController.Throttle(soln.a[future_i]) / 100;
 
                         json msgJson;
                         // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
