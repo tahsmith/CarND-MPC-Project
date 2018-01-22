@@ -6,7 +6,7 @@
 
 using CppAD::AD;
 
-// TODO: Set the timestep length and duration
+// Config for the MPC system
 const size_t N = 20;
 const double dt = 0.05;
 const size_t n_state = 4 * N;
@@ -16,6 +16,8 @@ const size_t n_constraints = 4 * (N - 1);
 const double target_v = 120;
 const double max_a = 100;
 const double max_steer = 25.0 * M_PI / 180.0;
+const double steering_aggression = 1.0 * max_steer;
+const double acceleration_aggression = 100;
 
 
 // This value assumes the model presented in the classroom is used.
@@ -40,22 +42,7 @@ AD<double> polyEval(Eigen::VectorXd coeffs, AD<double> x)
     return result;
 }
 
-
-Eigen::VectorXd globalKinematic(Eigen::VectorXd state,
-                                Eigen::VectorXd actuators, double dt)
-{
-    Eigen::VectorXd next_state(state.size());
-
-    // NOTE: state is [x, y, psi, v]
-    // NOTE: actuators is [delta, a]
-    double r = state(3) * dt;
-    next_state(0) = state(0) + r * cos(state(2));
-    next_state(1) = state(1) + r * sin(state(2));
-    next_state(2) = state(2) + r * actuators(0) / Lf;
-    next_state(3) = state(3) + actuators(1) * dt;
-    return next_state;
-}
-
+// Utility functions to keep sanity
 namespace state_indices
 {
     size_t x_i(size_t i)
@@ -100,6 +87,7 @@ public:
 
     typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
 
+    /// Calculate the cost associated with a trajectory that does not follow the waypoint curve.
     AD<double> crossTrackError(const ADvector& vars) {
         using namespace state_indices;
         AD<double> cte = 0.0;
@@ -113,6 +101,7 @@ public:
         return cte;
     }
 
+    /// Calculate the cost associated with a trajectory that is not tangential to the of the waypoint curve
     AD<double> tangentialError(const ADvector& vars) {
         using namespace state_indices;
         AD<double> tangentialError = 0.0;
@@ -129,22 +118,7 @@ public:
         return tangentialError;
     }
 
-    AD<double> distancePenalty(const ADvector &vars) {
-        using namespace state_indices;
-        AD<double> distance = 0.0;
-        for (size_t i = N - 1; i < N; ++i) {
-            auto x0 = vars[x_i(i - 1)];
-            auto y0 = vars[y_i(i - 1)];
-            auto x1 = vars[x_i(i)];
-            auto y1 = vars[y_i(i)];
-            auto dx = x1 - x0;
-            auto dy = y1 - y0;
-            distance += CppAD::pow(dx, 2) + CppAD::pow(dy, 2);
-        }
-
-        return -distance;
-    }
-
+    /// Calculate the cost associated with a trajectory that does not keep up with the speed set point (target_v)
     AD<double> speedPenalty(const ADvector& vars) {
         using namespace state_indices;
         AD<double> speedError = 0.0;
@@ -154,16 +128,20 @@ public:
         return speedError;
     }
 
+    /// Calculate the cost associated a control trajectory that changes rapidly. This attempt to smooth the controls by
+    /// minimising the difference between successive control values.
     AD<double> smooth(const ADvector& vars) {
         using namespace state_indices;
         AD<double> smooth_cost = 0;
         for (size_t i = 0; i < N - 2; i++) {
-            smooth_cost += CppAD::pow((vars[delta_i(i + 1)] - vars[delta_i(i)]) / max_steer, 2);
-            smooth_cost += CppAD::pow((vars[a_i(i + 1)] - vars[a_i(i)] ) / max_a, 2);
+            smooth_cost += CppAD::pow((vars[delta_i(i + 1)] - vars[delta_i(i)]) / steering_aggression, 2);
+            smooth_cost += CppAD::pow((vars[a_i(i + 1)] - vars[a_i(i)] ) / acceleration_aggression, 2);
         }
         return smooth_cost;
     }
 
+    /// Calculate the cost associated with a trajectory that corners too hard. The cost per time step here is
+    /// proportional to the centripetal force.
     AD<double> corneringPenalty(const ADvector& vars) {
         using namespace state_indices;
         AD<double> cornering_penalty = 0;
@@ -173,6 +151,8 @@ public:
         return cornering_penalty;
     }
 
+    /// Set up the constrains associated with the process model, i.e., all pairs successive time points in the state
+    /// space must obey the dynamic model. Here that model is the bicycle model.
     void applyProcessModelConstraint(const ADvector& vars, size_t i, ADvector& fg) {
         using namespace state_indices;
         auto x0 = vars[x_i(i)];
@@ -203,12 +183,9 @@ public:
         fg[i + 3 * (N - 1) + 1] = v_err;
     }
 
+    /// Apply all of our costs constraints.
     void operator()(ADvector& fg, const ADvector& vars)
     {
-        // TODO: implement MPC
-        // `fg` a vector of the cost constraints, `vars` is a vector of variable values (state & actuators)
-        // NOTE: You'll probably go back and forth between this function and
-        // the Solver function below.
         fg[0] = 0;
         fg[0] += 100 * crossTrackError(vars);
         fg[0] += 100 * tangentialError(vars);
@@ -229,14 +206,13 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     bool ok = true;
     typedef CPPAD_TESTVECTOR(double) Dvector;
 
-    // TODO: Set the number of constraints
-    // Initial value of the independent variables.
-    // SHOULD BE 0 besides initial state.
     Dvector vars(n_vars);
     for (int i = 0; i < n_vars; i++)
     {
         vars[i] = 0;
     }
+
+    // Set the initial state for the solver. We are going to constrain these points to be equal to these values later.
     vars[x_i(0)] = state(0);
     vars[y_i(0)] = state(1);
     vars[psi_i(0)] = state(2);
@@ -246,13 +222,16 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
 
     Dvector vars_lowerbound(n_vars);
     Dvector vars_upperbound(n_vars);
-    // TODO: Set lower and upper limits for variables.
+
+    // N.B. there is one less control point that state points.
     for (size_t i = 0; i < N - 1; ++i) {
         vars_lowerbound[a_i(i)] = -max_a;
         vars_upperbound[a_i(i)] = max_a;
         vars_lowerbound[delta_i(i)] = -max_steer;
         vars_upperbound[delta_i(i)] = max_steer;
     }
+
+    // Set a big number for all the state variables. We are no interested in constraining the problem this way.
     for (size_t i = 1; i < N; ++i) {
         vars_lowerbound[x_i(i)] = -10000;
         vars_upperbound[x_i(i)] = 10000;
@@ -264,6 +243,7 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
         vars_upperbound[v_i(i)] = 10000;
     }
 
+    // Constrain the initial state + controls to be the ones we have measured and passed in via `state`.
     vars_lowerbound[x_i(0)] = state(0);
     vars_upperbound[x_i(0)] = state(0);
     vars_lowerbound[y_i(0)] = state(1);
@@ -277,8 +257,7 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     vars_lowerbound[delta_i(0)] = state(5);
     vars_upperbound[delta_i(0)] = state(5);
 
-    // Lower and upper limits for the constraints
-    // Should be 0 besides initial state.
+    // All of our constrains are strict equality constraints, so set upper and lower bound to 0
     Dvector constraints_lowerbound(n_constraints);
     Dvector constraints_upperbound(n_constraints);
     for (int i = 0; i < n_constraints; i++)
@@ -289,13 +268,6 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
 
     // object that computes objective and constraints
     FG_eval fg_eval(std::move(coeffs));
-
-//    std::cout << vars << "\n";
-//    std::cout << vars_lowerbound << "\n";
-//    std::cout << vars_upperbound << "\n";
-//
-//    std::cout << constraints_lowerbound << "\n";
-//    std::cout << constraints_upperbound << "\n";
 
     //
     // NOTE: You don't have to worry about these options
@@ -381,11 +353,6 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
     auto cost = solution.obj_value;
     std::cout << "Cost " << cost << std::endl;
 
-    // TODO: Return the first actuator values. The variables can be accessed with
-    // `solution.x[i]`.
-    //
-    // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
-    // creates a 2 element double vector.
     std::vector<double> x;
     std::copy(solution.x.data() + x_i(0), solution.x.data() + x_i(N), std::back_inserter(x));
     std::vector<double> y;

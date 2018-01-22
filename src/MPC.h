@@ -41,6 +41,8 @@ public:
     double TotalError();
 };
 
+/// Measures acceleration from sequential velocity measurements.
+/// Produces a
 class AccelerationController {
     PID pid;
 public:

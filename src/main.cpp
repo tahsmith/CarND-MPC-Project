@@ -20,11 +20,14 @@ namespace chrono = std::chrono;
 constexpr double pi()
 { return M_PI; }
 
+
 double deg2rad(double x)
 { return x * pi() / 180; }
 
+
 double rad2deg(double x)
 { return x * 180 / pi(); }
+
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -45,6 +48,7 @@ string hasData(string s)
     return "";
 }
 
+
 // Evaluate a polynomial.
 double polyeval(Eigen::VectorXd coeffs, double x)
 {
@@ -55,6 +59,7 @@ double polyeval(Eigen::VectorXd coeffs, double x)
     }
     return result;
 }
+
 
 // Fit a polynomial.
 // Adapted from
@@ -84,6 +89,7 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
     return result;
 }
 
+/// Do an in-place transformation of the points in ptsx, ptsx, to the origin px, px, and bearing psi
 void transformGlobalToLocal(vector<double>& ptsx, vector<double>& ptsy, double px, double py, double psi)
 {
     for(int i = 0; i < ptsx.size(); i++) {
@@ -95,20 +101,15 @@ void transformGlobalToLocal(vector<double>& ptsx, vector<double>& ptsy, double p
     }
 }
 
-void transformLocalToGlobal(vector<double>& ptsx, vector<double>& ptsy, double px, double py, double psi)
-{
-    for(int i = 0; i < ptsx.size(); i++) {
-        double x = ptsx[i] * cos(psi) - ptsy[i] * sin(psi);
-        double y = ptsy[i] * sin(psi) + ptsy[i] * cos(psi);
-        ptsx[i] = px + x;
-        ptsy[i] = py + y;
-    }
-}
 
 int main()
 {
     uWS::Hub h;
     MPC mpc;
+
+    // The Ki value is important here because there is a systematic error in the simulator that is not represented
+    // in our MPC dynamics, i.e, the rolling resistance of the car. You must provide a constant, non zero throttle to
+    // maintain a steady speed, (as it is with a real car.)
     AccelerationController accelerationController(10.0, 0.002, 1.5);
 
     h.onMessage(
@@ -135,7 +136,6 @@ int main()
                         double py = j[1]["y"];
                         double psi = j[1]["psi"];
                         double v = j[1]["speed"];
-                        double throttle = j[1]["throttle"];
                         double steering_angle = j[1]["steering_angle"];
                         // steering angle is returned to us in radians, but flipped.
                         steering_angle *= -1;
@@ -144,17 +144,11 @@ int main()
                         auto waypoints_y = ptsy;
                         transformGlobalToLocal(waypoints_x, waypoints_y, px, py, psi);
 
-                        /*
-                        * TODO: Calculate steering angle and throttle using MPC.
-                        *
-                        * Both are in between [-1, 1].
-                        *
-                        */
-
+                        // Acceleration controller will attempt to measure the real value of acceleration via subsequent
+                        // speed measurements.
                         accelerationController.Update(v);
 
                         Eigen::VectorXd state(6);
-                        cout << accelerationController.a << " " << throttle;
                         state << 0, 0, 0, v, accelerationController.a, steering_angle;
 
                         auto coeffs = polyfit(
@@ -163,32 +157,40 @@ int main()
                             3);
                         auto soln = mpc.Solve(state, coeffs);
 
+                        // Our time-step is 50ms so i = 3 give 150ms from when the telemetry info came, which is about
+                        // calculation time + transmission round trip + artificial lag.
                         double future_i = 3;
                         double future_x = soln.x[future_i];
                         double future_y = soln.y[future_i];
                         double future_psi = soln.psi[future_i];
                         double steer_value = -soln.delta[future_i] / deg2rad(25);
-                        double throttle_value = accelerationController.Throttle(soln.a[future_i]) / 100;
+
+                        // AccelerationController::Throttle implements a PID control loop to give a value for throttle
+                        // given an acceleration set point. Given that the throttle value starts proportional to
+                        // acceleration set point, scale back to 100, the max acceleration allowed by the MPC. This
+                        // helps avoid saturation of the control which will cause error in the predictions used above.
+                        // The value of 1000 is the Kp value from AccelerationController multiplied by the max_a value
+                        // from the MPC. This means that the maximum control effort allowed by the MPC will *just*
+                        // saturate the throttle.
+                        double throttle_value = accelerationController.Throttle(soln.a[future_i]) / 1000;
 
                         json msgJson;
-                        // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
-                        // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
                         msgJson["steering_angle"] = steer_value;
                         msgJson["throttle"] = throttle_value;
 
 
-                        //Display the MPC predicted trajectory
+                        // Display the MPC predicted trajectory
                         vector<double> mpc_x_vals = soln.x;
                         vector<double> mpc_y_vals = soln.y;
-                        transformGlobalToLocal(mpc_x_vals, mpc_y_vals, future_x, future_y, future_psi);
 
-                        //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-                        // the points in the simulator are connected by a Green line
+                        // Transform the MPC trajectory to the position we expect it to be after the lag time has elapsed.
+                        transformGlobalToLocal(mpc_x_vals, mpc_y_vals, future_x, future_y, future_psi);
 
                         msgJson["mpc_x"] = mpc_x_vals;
                         msgJson["mpc_y"] = mpc_y_vals;
 
-                        //Display the waypoints/reference line
+                        // Display what our curve-fitted path was. This is more useful for debugging that the waypoints
+                        // themselves.
                         vector<double> next_x_vals = waypoints_x;
                         vector<double> next_y_vals = waypoints_y;
                         for (size_t i = 0; i < waypoints_x.size(); ++i) {
@@ -196,15 +198,12 @@ int main()
                         }
                         transformGlobalToLocal(next_x_vals, next_y_vals, future_x, future_y, future_psi);
 
-                        //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-                        // the points in the simulator are connected by a Yellow line
-
                         msgJson["next_x"] = next_x_vals;
                         msgJson["next_y"] = next_y_vals;
 
-
                         auto msg = "42[\"steer\"," + msgJson.dump() + "]";
                         std::cout << msg << std::endl;
+
                         // Latency
                         // The purpose is to mimic real driving conditions where
                         // the car does actuate the commands instantly.
