@@ -47,7 +47,6 @@ class AccelerationController {
     PID pid;
 public:
     double v, a;
-    double p_a, i_a, d_a;
     double t;
 
 
@@ -72,7 +71,6 @@ public:
     };
 
     // Solve the model given an initial state and polynomial coefficients.
-    // Return the first actuatotions.
     Solution Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
 };
 
