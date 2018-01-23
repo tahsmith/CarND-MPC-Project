@@ -167,7 +167,7 @@ int main()
 
                         // AccelerationController::Throttle implements a PID control loop to give a value for throttle
                         // given an acceleration set point. Given that the throttle value starts proportional to
-                        // acceleration set point, scale back to 100, the max acceleration allowed by the MPC. This
+                        // acceleration set point, scale back to the max acceleration allowed by the MPC. This
                         // helps avoid saturation of the control which will cause error in the predictions used above.
                         // The value of 1000 is the Kp value from AccelerationController multiplied by the max_a value
                         // from the MPC. This means that the maximum control effort allowed by the MPC will *just*

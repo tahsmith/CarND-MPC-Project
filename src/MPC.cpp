@@ -231,7 +231,7 @@ auto MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) -> Solution
         vars_upperbound[delta_i(i)] = max_steer;
     }
 
-    // Set a big number for all the state variables. We are no interested in constraining the problem this way.
+    // Set a big number for all the state variables. We are not interested in constraining the problem this way.
     for (size_t i = 1; i < N; ++i) {
         vars_lowerbound[x_i(i)] = -10000;
         vars_upperbound[x_i(i)] = 10000;
