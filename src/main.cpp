@@ -92,7 +92,7 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
 /// Do an in-place transformation of the points in ptsx, ptsx, to the origin px, px, and bearing psi
 void transformGlobalToLocal(vector<double>& ptsx, vector<double>& ptsy, double px, double py, double psi)
 {
-    for(int i = 0; i < ptsx.size(); i++) {
+    for(size_t i = 0; i < ptsx.size(); i++) {
         double shift_x = ptsx[i] - px;
         double shift_y = ptsy[i] - py;
 
